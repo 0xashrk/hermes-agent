@@ -1,0 +1,9 @@
+{
+  "name": "askgina_os",
+  "label": "Wallet",
+  "description": "askgina/os wallet: balances, limits, mandates and payments waiting for your approval.",
+  "icon": "Wallet",
+  "version": "0.1.0",
+  "tab": { "path": "/wallet", "hidden": true },
+  "api": "plugin_api.py"
+}
