@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from plugins.askgina_os.cli import askgina_os_command, register_cli
+from .cli import askgina_os_command, register_cli
 
 _SKILL = Path(__file__).with_name("SKILL.md")
 
