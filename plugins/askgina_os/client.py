@@ -1,8 +1,8 @@
-"""The askgina_os plugin's one door to askgina/os: config, the agent token and MCP tool calls.
+"""The askgina_os plugin's one door to askgina/os: config, the agent token, pairing and MCP calls.
 
 Shared by the ``hermes askgina-os`` CLI and the Wallet panel's backend router, so the token is
 read in exactly one place and never leaves this process. Uses only the published plugin API
-(``hermes_cli.config``, ``agent.redact``) and the MCP SDK.
+(``hermes_cli.config``, ``agent.secret_scope``, ``agent.redact``), httpx and the MCP SDK.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -187,3 +187,81 @@ def call_tools(os_target: OsTarget, calls: list[tuple[str, dict]], *, timeout: f
 def approval_page(base_url: str, workspace_id: str, intent_id: str) -> str:
     """The control plane's page for one pending request; it links on to the signer's own page."""
     return f"{base_url}/w/{workspace_id}/approvals/{intent_id}"
+
+
+# --- pairing: connect with no token to copy -----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Pairing:
+    """A pairing started at os. The poll secret is what collects the token; it never leaves here."""
+
+    base_url: str
+    pairing_id: str
+    user_code: str
+    verification_url: str
+    expires_at: int
+    interval: int
+    poll_secret: str = field(repr=False)
+
+
+def _post(url: str, body: dict, *, timeout: float) -> tuple[int, dict]:
+    import httpx
+
+    try:
+        response = httpx.post(url, json=body, timeout=timeout)
+    except httpx.HTTPError as exc:
+        raise OsError(_redact(f"could not reach askgina/os: {_first_cause(exc)}", "")) from None
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    return response.status_code, payload if isinstance(payload, dict) else {}
+
+
+def start_pairing(base_url: str, client_name: str = "Hermes", *, timeout: float = 10) -> Pairing:
+    """Ask os for a pairing; the person allows it on os's page at ``verification_url``."""
+    status, body = _post(f"{base_url}/agent-pairing", {"clientName": client_name}, timeout=timeout)
+    if status != 201:
+        message = (body.get("error") or {}).get("message") or f"HTTP {status}"
+        raise OsError(_redact(f"askgina/os refused to start pairing: {message}", ""))
+    try:
+        pairing = Pairing(
+            base_url=base_url,
+            pairing_id=str(body["pairingId"]),
+            user_code=str(body["userCode"]),
+            verification_url=str(body["verificationUrl"]),
+            expires_at=int(body["expiresAt"]),
+            interval=max(1, int(body.get("interval") or 2)),
+            poll_secret=str(body["pollSecret"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        raise OsError("askgina/os answered the pairing request in an unexpected shape") from None
+    # The page we open must be os's own, never a link the answer could point elsewhere.
+    if not pairing.verification_url.startswith(f"{base_url}/pair/"):
+        raise OsError("askgina/os answered with a pairing link on another site")
+    return pairing
+
+
+def poll_pairing(pairing: Pairing, *, timeout: float = 10) -> str:
+    """One poll: ``pending``, ``denied`` or ``expired``; or ``connected`` once os hands over the
+    token, which is then saved like ``hermes askgina-os connect`` does and never returned."""
+    status, body = _post(
+        f"{pairing.base_url}/agent-pairing/poll",
+        {"pairingId": pairing.pairing_id, "pollSecret": pairing.poll_secret},
+        timeout=timeout,
+    )
+    if status == 404:
+        return "expired"
+    if status != 200:
+        message = (body.get("error") or {}).get("message") or f"HTTP {status}"
+        raise OsError(_redact(f"askgina/os refused the pairing poll: {message}", ""))
+    state = body.get("status")
+    if state == "approved":
+        token = strip_bearer(str(body.get("token") or ""))
+        if not token:
+            raise OsError("askgina/os approved the pairing but sent no token")
+        save(pairing.base_url, token)
+        return "connected"
+    # `claimed`: the token went to an earlier poll whose answer never arrived; start again.
+    return state if state in ("pending", "denied") else "expired"

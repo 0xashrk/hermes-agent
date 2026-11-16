@@ -151,3 +151,39 @@ export async function fetchOverview(scope: string): Promise<WalletOverview> {
 export function openInBrowser(url: string): void {
   void os?.openExternal(url)
 }
+
+// ── Pairing: connect with no token to copy ──────────────────────────────────
+// The backend starts the pairing and keeps its poll secret; this side gets the
+// code to show and os's page to open, then polls until the person answers.
+
+export type PairStatus = 'connected' | 'denied' | 'error' | 'expired' | 'none' | 'pending'
+
+export interface PairStart {
+  status: 'error' | 'pending'
+  userCode?: string
+  verificationUrl?: string
+  expiresAt?: number
+  error?: string
+}
+
+export const pairKey = (scope: string) => [...KEY_ROOT, 'pair', scope] as const
+
+function call<T>(path: string, body: unknown = {}): Promise<T> {
+  if (!rest) {
+    return Promise.reject(new Error('Wallet plugin is not loaded'))
+  }
+
+  return rest<T>(path, { method: 'POST', body })
+}
+
+export const startPairing = (baseUrl: string) => call<PairStart>('/pair/start', { baseUrl })
+
+export const pollPairing = () => call<{ status: PairStatus; error?: string }>('/pair/poll')
+
+export const cancelPairing = () => call<object>('/pair/cancel')
+
+/** After pairing, read the wallet afresh for this connection. */
+export const refreshOverview = (scope: string) => queryClient.invalidateQueries({ queryKey: overviewKey(scope) })
+
+/** Forget the last poll's answer, so a new pairing starts from "waiting". */
+export const resetPairing = (scope: string) => queryClient.removeQueries({ queryKey: pairKey(scope) })

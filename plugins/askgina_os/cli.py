@@ -1,6 +1,8 @@
 """``hermes askgina-os``: connect Hermes to an askgina/os control plane over MCP.
 
-The agent token is a secret. It is written only to the profile's ``.env`` (as
+``connect`` pairs: it shows a code, opens os's page in the browser, and once the person allows it
+there, collects the agent token by itself. ``--token-stdin`` takes a token instead (headless).
+The token is a secret: it is written only to the profile's ``.env`` (as
 ``MCP_ASKGINA_OS_API_KEY``); config.yaml holds the server URL and a
 ``Bearer ${MCP_ASKGINA_OS_API_KEY}`` template, never the token.
 """
@@ -10,11 +12,13 @@ from __future__ import annotations
 import argparse
 import getpass
 import sys
+import time
+import webbrowser
 
 from . import client
 
 _SUBCOMMAND_HELP = (
-    ("connect", "Save the os URL and agent token, then check the connection"),
+    ("connect", "Pair with askgina/os in the browser (or --token-stdin), then check the connection"),
     ("status", "Show whether os is configured and reachable (never prints the token)"),
     ("disconnect", "Remove the os MCP server and its token"),
 )
@@ -43,12 +47,46 @@ def _check(os_target: client.OsTarget) -> int:
     return 0
 
 
+def _pair(base_url: str) -> int:
+    """Start a pairing, open os's page and poll until the person answers or it expires."""
+    try:
+        pairing = client.start_pairing(base_url)
+    except client.OsError as exc:
+        print(f"  ✗ {exc}")
+        return 1
+    print(f"\n  Code: {pairing.user_code}\n")
+    print("  Check that your browser shows this code, then press Allow.")
+    print(f"  If it did not open: {pairing.verification_url}")
+    webbrowser.open(pairing.verification_url)
+    try:
+        while True:
+            status = client.poll_pairing(pairing)
+            if status != "pending":
+                break
+            time.sleep(pairing.interval)
+    except client.OsError as exc:
+        print(f"  ✗ {exc}")
+        return 1
+    except KeyboardInterrupt:
+        print("\n  Cancelled.")
+        return 130
+    if status != "connected":
+        print("  ✗ Not connected: you chose not to allow it." if status == "denied"
+              else "  ✗ The code expired. Run this again.")
+        return 1
+    print(f"  ✓ Paired with askgina/os at {base_url} (token stored in this profile's .env)")
+    os_target = client.target()
+    return _check(os_target) if os_target else 0
+
+
 def cmd_connect(url: str, token_stdin: bool) -> int:
     try:
         base_url = client.normalize_base_url(url)
     except ValueError as exc:
         print(f"  ✗ {exc}")
         return 2
+    if not token_stdin:
+        return _pair(base_url)
     token = client.strip_bearer(_read_token(token_stdin))
     if not token:
         print("  ✗ the agent token is empty")
@@ -81,7 +119,7 @@ def register_cli(subparser: argparse.ArgumentParser) -> None:
     p["connect"].add_argument("--url", default=client.DEFAULT_BASE_URL,
                               help=f"os control-plane base URL (default {client.DEFAULT_BASE_URL})")
     p["connect"].add_argument("--token-stdin", action="store_true",
-                              help="read the agent token from stdin instead of a hidden prompt")
+                              help="skip pairing: read an agent token from stdin (or a hidden prompt)")
     subparser.set_defaults(func=askgina_os_command)
 
 

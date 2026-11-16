@@ -1,20 +1,26 @@
 """Wallet panel backend, mounted at /api/plugins/askgina_os/.
 
-One read, ``GET /overview``: who Hermes is on askgina/os, its wallet, balances and limits, live
-mandates, payments waiting for a person, and recent payments. It calls os over MCP with the agent
-token, which it reads server-side and never returns: the Desktop panel only ever sees this summary
-and the control-plane page of each pending request, which it opens in the system browser.
+``GET /overview``: who Hermes is on askgina/os, its wallet, balances and limits, live mandates,
+payments waiting for a person, and recent payments. It calls os over MCP with the agent token,
+which it reads server-side and never returns: the Desktop panel only ever sees this summary and
+the control-plane page of each pending request, which it opens in the system browser.
+
+``POST /pair/start``, ``/pair/poll``, ``/pair/cancel``: connect with no token to copy. os shows
+the person the same code the panel shows; once they allow it, the poll collects the token and
+saves it like ``hermes askgina-os connect``. The poll secret and the token stay in this process.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import sys
+import threading
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -132,3 +138,63 @@ async def overview() -> dict:
     except client.OsError as exc:
         return {"configured": True, "baseUrl": os_target.base_url, "error": str(exc)}
     return summarize(me or {}, balances or {}, intents or {}, os_target.base_url)
+
+
+# --- pairing --------------------------------------------------------------------------------------
+
+# One pairing in flight per profile (keyed by its config.yaml). Sync routes run in FastAPI's thread
+# pool, so the lock guards the map.
+_pairings: dict[str, Any] = {}
+_pairings_lock = threading.Lock()
+
+
+def _profile_key() -> str:
+    from hermes_cli.config import get_config_path
+
+    return str(get_config_path())
+
+
+class PairStart(BaseModel):
+    baseUrl: Optional[str] = None
+
+
+@router.post("/pair/start")
+def pair_start(body: PairStart) -> dict:
+    try:
+        base_url = client.normalize_base_url(body.baseUrl or client.DEFAULT_BASE_URL)
+        pairing = client.start_pairing(base_url)
+    except (ValueError, client.OsError) as exc:
+        return {"status": "error", "error": str(exc)}
+    with _pairings_lock:
+        _pairings[_profile_key()] = pairing
+    return {
+        "status": "pending",
+        "userCode": pairing.user_code,
+        "verificationUrl": pairing.verification_url,
+        "expiresAt": pairing.expires_at,
+    }
+
+
+@router.post("/pair/poll")
+def pair_poll() -> dict:
+    key = _profile_key()
+    with _pairings_lock:
+        pairing = _pairings.get(key)
+    if pairing is None:
+        return {"status": "none"}
+    try:
+        status = client.poll_pairing(pairing)
+    except client.OsError as exc:
+        return {"status": "error", "error": str(exc)}
+    if status != "pending":
+        with _pairings_lock:
+            if _pairings.get(key) is pairing:
+                del _pairings[key]
+    return {"status": status}
+
+
+@router.post("/pair/cancel")
+def pair_cancel() -> dict:
+    with _pairings_lock:
+        _pairings.pop(_profile_key(), None)
+    return {}

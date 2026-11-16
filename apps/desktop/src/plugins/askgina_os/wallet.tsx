@@ -5,16 +5,23 @@
  * a passkey. This page never sees the agent token.
  */
 
-import { Badge, Button, Codicon, CopyButton, ScrollArea, Skeleton, useQuery } from '@hermes/plugin-sdk'
-import type { ReactNode } from 'react'
+import { Badge, Button, Codicon, CopyButton, Input, ScrollArea, Skeleton, useQuery } from '@hermes/plugin-sdk'
+import { type ReactNode, useState } from 'react'
 
 import {
+  cancelPairing,
   DEFAULT_OS_URL,
   fetchOverview,
   type IntentRow,
   type MandateInfo,
   openInBrowser,
   overviewKey,
+  pairKey,
+  type PairStart,
+  pollPairing,
+  refreshOverview,
+  resetPairing,
+  startPairing,
   useWalletScope,
   type WalletInfo,
   type WalletOverview
@@ -22,7 +29,7 @@ import {
 import { useWallet, type WalletText } from './i18n'
 
 const POLL_MS = 4000
-const CONNECT_COMMAND = 'hermes askgina-os connect'
+const PAIR_POLL_MS = 2000
 
 const STATUS_TONE: Record<string, 'destructive' | 'muted' | 'success' | 'warn'> = {
   confirmed: 'success',
@@ -237,31 +244,114 @@ function Recent({ items }: { items: IntentRow[] }) {
   )
 }
 
+/**
+ * Not connected yet: one button. It asks os for a pairing, opens os's page in the
+ * browser and shows the same code here; once the person presses Allow there, the
+ * backend collects the token by itself and the wallet appears.
+ */
 function NotConnected({ overview }: { overview: WalletOverview }) {
   const w = useWallet()
-  const base = overview.baseUrl ?? DEFAULT_OS_URL
+  const scope = useWalletScope()
+  const [baseUrl, setBaseUrl] = useState(overview.baseUrl ?? DEFAULT_OS_URL)
+  const [started, setStarted] = useState<null | PairStart>(null)
+  const [starting, setStarting] = useState(false)
+  const waiting = started?.status === 'pending'
+
+  const poll = useQuery({
+    queryKey: pairKey(scope),
+    queryFn: async () => {
+      const result = await pollPairing()
+
+      if (result.status === 'connected') {
+        void refreshOverview(scope)
+      }
+
+      return result
+    },
+    enabled: waiting,
+    refetchInterval: query => (!query.state.data || query.state.data.status === 'pending' ? PAIR_POLL_MS : false)
+  })
+
+  const ended = poll.data && poll.data.status !== 'pending' ? poll.data : null
+
+  const begin = async () => {
+    setStarting(true)
+    resetPairing(scope)
+
+    try {
+      const result = await startPairing(baseUrl)
+      setStarted(result)
+
+      if (result.status === 'pending' && result.verificationUrl) {
+        openInBrowser(result.verificationUrl)
+      }
+    } catch (error) {
+      setStarted({ status: 'error', error: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setStarting(false)
+    }
+  }
+
+  const stop = () => {
+    void cancelPairing()
+    resetPairing(scope)
+    setStarted(null)
+  }
+
+  if (waiting && !ended) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center gap-5 px-6 py-14 text-center">
+        <h1 className="text-lg font-semibold">{w.connectTitle}</h1>
+        <p className="text-sm text-muted-foreground">{w.pairCode}</p>
+        <p className="rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-secondary) px-6 py-4 font-mono text-3xl font-semibold tracking-[0.2em]">
+          {started.userCode}
+        </p>
+        <p className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+          <Codicon className="animate-spin" name="loading" size="0.8rem" />
+          {w.pairWaiting}
+        </p>
+        <div className="flex gap-2">
+          {started.verificationUrl && (
+            <Button onClick={() => openInBrowser(started.verificationUrl!)} size="sm" variant="secondary">
+              <Codicon name="link-external" size="0.8rem" />
+              {w.openAgain}
+            </Button>
+          )}
+          <Button onClick={stop} size="sm" variant="ghost">
+            {w.cancel}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  const problem =
+    ended?.status === 'denied'
+      ? w.pairDenied
+      : ended?.status === 'expired' || ended?.status === 'none'
+        ? w.pairExpired
+        : (ended?.error ?? (started?.status === 'error' ? started.error : overview.error))
 
   return (
-    <div className="mx-auto flex max-w-xl flex-col gap-4 px-6 py-10">
-      <div>
-        <h1 className="text-lg font-semibold">{w.connectTitle}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{w.connectBody}</p>
-      </div>
-      <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm">
-        <li>{w.connectStep1}</li>
-        <li>{w.connectStep2}</li>
-        <li>
-          {w.connectStep3}
-          <code className="mt-1 block w-fit rounded bg-(--ui-bg-tertiary) px-1.5 py-0.5">{CONNECT_COMMAND}</code>
-        </li>
-      </ol>
-      {overview.error && <p className="text-xs text-destructive">{overview.error}</p>}
-      <div>
-        <Button onClick={() => openInBrowser(base)}>
-          <Codicon name="link-external" size="0.8rem" />
-          {w.openOs}
+    <div className="mx-auto flex max-w-md flex-col items-center gap-4 px-6 py-14 text-center">
+      <Codicon name="credit-card" size="1.5rem" />
+      <h1 className="text-lg font-semibold">{w.connectTitle}</h1>
+      <p className="text-sm text-muted-foreground">{w.connectBody}</p>
+      {ended?.status === 'connected' ? (
+        <p className="text-sm text-emerald-600 dark:text-emerald-300">{w.pairConnected}</p>
+      ) : (
+        <Button disabled={starting} onClick={() => void begin()}>
+          {starting ? w.connecting : started || ended ? w.tryAgain : w.connectButton}
         </Button>
-      </div>
+      )}
+      {problem && <p className="text-xs text-destructive">{problem}</p>}
+      <details className="w-full text-left text-xs text-muted-foreground">
+        <summary className="cursor-pointer select-none text-center">{w.advanced}</summary>
+        <label className="mt-2 flex flex-col gap-1">
+          {w.osAddress}
+          <Input onChange={event => setBaseUrl(event.target.value)} value={baseUrl} />
+        </label>
+      </details>
     </div>
   )
 }

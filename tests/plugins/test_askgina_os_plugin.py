@@ -205,3 +205,89 @@ def test_unscoped_multiplexed_read_fails_closed(multiplexed):
     view = asyncio.run(_router().overview())
     assert view["configured"] is False
     assert AMBIENT not in repr(view) and TOKEN not in repr(view)
+
+
+SECRET = "poll_secret_for_tests_abcdefghijklmnop"
+STARTED = {"pairingId": "pai_01test", "userCode": "QF7K-2M9X", "pollSecret": SECRET,
+           "verificationUrl": "http://localhost:8080/pair/pai_01test", "expiresAt": 1_900_000_000,
+           "interval": 2}
+
+
+@pytest.fixture
+def fake_pairing(monkeypatch):
+    """os's two pairing endpoints, scripted: each poll takes the next answer."""
+    router = _router()
+    answers: list[tuple[int, dict]] = []
+    sent: list[tuple[str, dict]] = []
+
+    def fake_post(url, body, **_):
+        sent.append((url, body))
+        if url.endswith("/agent-pairing"):
+            return 201, STARTED
+        return answers.pop(0)
+
+    monkeypatch.setattr(router.client, "_post", fake_post)
+    router.pair_cancel()
+    return router, answers, sent
+
+
+def test_pairing_keeps_the_poll_secret_and_token_server_side(fake_pairing):
+    router, answers, sent = fake_pairing
+
+    started = router.pair_start(router.PairStart(baseUrl="http://localhost:8080"))
+    assert started == {"status": "pending", "userCode": "QF7K-2M9X",
+                       "verificationUrl": "http://localhost:8080/pair/pai_01test",
+                       "expiresAt": 1_900_000_000}
+
+    answers.extend([(200, {"status": "pending"}),
+                    (200, {"status": "approved", "token": TOKEN, "mcpUrl": "http://localhost:8080/mcp"})])
+    assert router.pair_poll() == {"status": "pending"}
+    connected = router.pair_poll()
+
+    assert connected == {"status": "connected"}
+    assert sent[-1] == ("http://localhost:8080/agent-pairing/poll",
+                        {"pairingId": "pai_01test", "pollSecret": SECRET})
+    # Saved like `connect`: token only in .env (0600), a header template in config.yaml.
+    assert get_env_value("MCP_ASKGINA_OS_API_KEY") == TOKEN
+    assert stat.S_IMODE(get_env_path().stat().st_mode) & 0o077 == 0
+    server = read_raw_config()["mcp_servers"]["askgina_os"]
+    assert server == {"url": "http://localhost:8080/mcp",
+                      "headers": {"Authorization": "Bearer ${MCP_ASKGINA_OS_API_KEY}"}}
+    assert TOKEN not in get_config_path().read_text()
+    # Done: nothing is left to poll.
+    assert router.pair_poll() == {"status": "none"}
+
+
+@pytest.mark.parametrize(("answer", "status"), [
+    ((200, {"status": "denied"}), "denied"),
+    ((200, {"status": "expired"}), "expired"),
+    ((200, {"status": "claimed"}), "expired"),  # an earlier poll got the token; start again
+    ((404, {"error": {"code": "not_found", "message": "no such pairing"}}), "expired"),
+])
+def test_pairing_that_ends_without_a_token_saves_nothing(fake_pairing, answer, status):
+    router, answers, _ = fake_pairing
+    router.pair_start(router.PairStart())
+    answers.append(answer)
+
+    assert router.pair_poll() == {"status": status}
+    assert not get_env_value("MCP_ASKGINA_OS_API_KEY")
+    assert "askgina_os" not in (load_config().get("mcp_servers") or {})
+
+
+def test_cancel_forgets_the_pairing(fake_pairing):
+    router, _, _ = fake_pairing
+    router.pair_start(router.PairStart())
+
+    router.pair_cancel()
+
+    assert router.pair_poll() == {"status": "none"}
+
+
+def test_pairing_link_on_another_site_is_refused(fake_pairing, monkeypatch):
+    router, _, _ = fake_pairing
+    monkeypatch.setitem(STARTED, "verificationUrl", "https://evil.example/pair/pai_01test")
+
+    started = router.pair_start(router.PairStart())
+
+    assert started["status"] == "error"
+    assert router.pair_poll() == {"status": "none"}

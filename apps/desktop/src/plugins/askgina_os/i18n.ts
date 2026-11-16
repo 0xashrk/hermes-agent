@@ -52,9 +52,18 @@ type WalletMessages = {
   openExplorer: string
   connectTitle: string
   connectBody: string
-  connectStep1: string
-  connectStep2: string
-  connectStep3: string
+  connectButton: string
+  connecting: string
+  tryAgain: string
+  pairCode: string
+  pairWaiting: string
+  openAgain: string
+  cancel: string
+  pairDenied: string
+  pairExpired: string
+  pairConnected: string
+  advanced: string
+  osAddress: string
   notifyTitle: string
   notifyBody: (amount: string, to: string) => string
   recipient: string
@@ -103,10 +112,19 @@ const en: WalletMessages = {
   openExplorer: 'Open in block explorer',
   connectTitle: 'Connect a wallet',
   connectBody:
-    "Hermes pays through askgina/os, a signer you run yourself. Hermes only proposes payments; you approve each one with your passkey on os's own page, or pre-approve a small budget (a mandate). Hermes never holds a key.",
-  connectStep1: 'Open askgina/os, create your passkey, a workspace and an agent for Hermes. Copy its token.',
-  connectStep2: "Set the wallet's limits and approve them with your passkey.",
-  connectStep3: 'In a terminal, run this and paste the token:',
+    'Hermes pays through askgina/os, a signer you run. Hermes only asks; you approve each payment with your passkey. It never holds a key.',
+  connectButton: 'Connect wallet',
+  connecting: 'Connecting…',
+  tryAgain: 'Try again',
+  pairCode: 'Check this code matches in your browser, then press Allow.',
+  pairWaiting: 'Waiting for you to allow it…',
+  openAgain: 'Open again',
+  cancel: 'Cancel',
+  pairDenied: 'Not connected: you chose not to allow it.',
+  pairExpired: 'The code expired.',
+  pairConnected: 'Connected.',
+  advanced: 'Advanced',
+  osAddress: 'askgina/os address',
   notifyTitle: 'Hermes needs your approval',
   notifyBody: (amount, to) => `${amount} → ${to}. Open the Wallet to review.`,
   recipient: 'recipient'
