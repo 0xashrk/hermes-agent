@@ -159,7 +159,7 @@ async def call_tools_async(os_target: OsTarget, calls: list[tuple[str, dict]], *
                     for name, arguments in calls:
                         answer = await session.call_tool(name, arguments)
                         text = "".join(getattr(part, "text", "") for part in answer.content)
-                        if answer.isError:
+                        if answer.is_error:
                             raise OsError(f"{name}: {text or 'error'}")
                         results.append(json.loads(text) if text else None)
                     return results
