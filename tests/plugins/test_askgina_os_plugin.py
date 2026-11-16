@@ -3,6 +3,7 @@ and the Wallet panel's summary never carries the token."""
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import io
 import stat
@@ -161,3 +162,46 @@ def test_wallet_summary_formats_amounts_and_links_only_pending_person_approvals(
     assert view["pending"][0]["approvalPage"] == "http://localhost:8080/w/wsp_1/approvals/int_wait"
     assert [r["intentId"] for r in view["recent"]] == ["int_mandate", "int_done"]
     assert all("approvalPage" not in r for r in view["recent"])
+
+
+AMBIENT = "os_agent_token_of_the_LAUNCH_profile"
+ROUTED = "os_agent_token_of_the_ROUTED_profile"
+
+
+@pytest.fixture
+def multiplexed(monkeypatch, fake_os):
+    """A gateway serving several profiles: the launch profile's token sits in os.environ."""
+    from agent import secret_scope
+
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{TOKEN}\n"))
+    cli.cmd_connect("http://localhost:8080", token_stdin=True)
+    monkeypatch.setenv(client.TOKEN_ENV, AMBIENT)
+    token = secret_scope.set_multiplex_context(True)
+    yield secret_scope
+    secret_scope.reset_multiplex_context(token)
+
+
+def test_routed_profile_gets_its_own_token_never_the_ambient_one(multiplexed):
+    scope = multiplexed.set_secret_scope({client.TOKEN_ENV: ROUTED})
+    try:
+        assert client.target().token == ROUTED
+    finally:
+        multiplexed.reset_secret_scope(scope)
+
+
+def test_routed_profile_without_a_token_is_not_configured(multiplexed):
+    scope = multiplexed.set_secret_scope({})  # this profile never connected os
+    try:
+        assert client.target() is None
+        assert not client.token_present()
+    finally:
+        multiplexed.reset_secret_scope(scope)
+
+
+def test_unscoped_multiplexed_read_fails_closed(multiplexed):
+    with pytest.raises(multiplexed.UnscopedSecretError):
+        client.target()
+
+    view = asyncio.run(_router().overview())
+    assert view["configured"] is False
+    assert AMBIENT not in repr(view) and TOKEN not in repr(view)
