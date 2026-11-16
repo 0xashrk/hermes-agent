@@ -4,8 +4,8 @@
  * Hermes proposes payments over MCP; a person approves each one with a passkey
  * on os's own page (opened in the system browser), or a mandate covers it.
  *
- * On by default in this fork: it shows a "Connect a wallet" page until
- * `hermes askgina-os connect` has run.
+ * Off by default: the hermes-gina plugin's Gina Wallet pane now offers
+ * askgina/os as its signer. Enable this in Settings > Plugins to use it alone.
  */
 
 import {
@@ -60,7 +60,8 @@ const plugin: HermesPlugin = {
   id: PLUGIN_ID,
   name: 'Wallet (askgina/os)',
   description: 'Payments through askgina/os: balances, limits, mandates, and payments waiting for your passkey.',
-  defaultEnabled: true,
+  // Off by default: hermes-gina's Gina Wallet pane now offers askgina/os as its signer.
+  defaultEnabled: false,
   register(ctx) {
     ctx.i18n.register(WALLET_LOCALES)
     ctx.onDispose(bindApi(ctx.rest, ctx.os, ctx.i18n.t))
