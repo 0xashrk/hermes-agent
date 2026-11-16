@@ -19,11 +19,14 @@ import {
   SIDEBAR_NAV_AREA,
   type SidebarNavContribution,
   STATUSBAR_AREAS,
-  Tip
+  Tip,
+  TRANSCRIPT_DIRECTIVE_AREA,
+  type TranscriptDirectiveContribution
 } from '@hermes/plugin-sdk'
 
 import { bindApi } from './api'
 import { PLUGIN_ID, useWallet, WALLET_LOCALES } from './i18n'
+import { PaymentCard } from './payment-card'
 import { useOverview, WalletPage } from './wallet'
 
 const PATH = '/wallet'
@@ -80,6 +83,15 @@ const plugin: HermesPlugin = {
         area: SIDEBAR_NAV_AREA,
         order: 45,
         data: { codicon: 'credit-card', label: ctx.i18n.t('nav'), path: PATH } satisfies SidebarNavContribution
+      },
+      {
+        // `::askgina-payment{intent="int_…"}` in a reply renders the live payment card.
+        id: 'payment-card',
+        area: TRANSCRIPT_DIRECTIVE_AREA,
+        data: {
+          name: 'askgina-payment',
+          render: props => <PaymentCard {...props} />
+        } satisfies TranscriptDirectiveContribution
       },
       {
         id: 'open',

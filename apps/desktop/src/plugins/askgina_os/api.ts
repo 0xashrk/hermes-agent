@@ -58,8 +58,15 @@ export interface IntentRow {
   authorizedBy: 'mandate' | 'person'
   explorerUrl: null | string
   failureCode: null | string
-  approvalPage?: string
+  chainId?: null | string
+  /** The status can no longer change (confirmed, rejected, expired…). */
+  final?: boolean
+  /** os's own page where a person approves it; only while it waits for one. */
+  approvalPage?: null | string
 }
+
+/** `GET /intent/:id` answers with the payment, or with why it could not read it. */
+export type IntentAnswer = IntentRow | { error: string }
 
 export interface WalletOverview {
   configured: boolean
@@ -150,6 +157,17 @@ export async function fetchOverview(scope: string): Promise<WalletOverview> {
 }
 
 /** Approvals always happen in the system browser, on os's own pages — never inside Hermes. */
+export const intentKey = (scope: string, intentId: string) => [...KEY_ROOT, 'intent', scope, intentId] as const
+
+/** One payment, read from os by its id (the chat card): never from what the model wrote. */
+export function fetchIntent(intentId: string): Promise<IntentAnswer> {
+  if (!rest) {
+    return Promise.reject(new Error('Wallet plugin is not loaded'))
+  }
+
+  return rest<IntentAnswer>(`/intent/${encodeURIComponent(intentId)}`)
+}
+
 export function openInBrowser(url: string): void {
   void os?.openExternal(url)
 }

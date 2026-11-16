@@ -145,7 +145,11 @@ def test_wallet_summary_formats_amounts_and_links_only_pending_person_approvals(
     balances = {"balances": [{"chainId": "eip155:31337", "asset": "native", "symbol": "ETH",
                               "decimals": 18, "amount": "1000000000000000000"}]}
     intents = {"intents": [
-        {"intentId": "int_wait", "status": "pending_approval", "authorizedBy": "person", "amount": "0.01"},
+        {"intentId": "int_wait", "status": "pending_approval", "authorizedBy": "person", "amount": "0.01",
+         "approvalUrl": "http://localhost:8080/w/wsp_1/approvals/apr_wait"},
+        # A link to anywhere but the configured os is never offered.
+        {"intentId": "int_foreign", "status": "pending_approval", "authorizedBy": "person", "amount": "0.01",
+         "approvalUrl": "https://evil.example/w/wsp_1/approvals/apr_x"},
         {"intentId": "int_mandate", "status": "approved", "authorizedBy": "mandate", "amount": "0.02"},
         {"intentId": "int_done", "status": "confirmed", "authorizedBy": "person", "amount": "0.01"},
     ]}
@@ -160,9 +164,10 @@ def test_wallet_summary_formats_amounts_and_links_only_pending_person_approvals(
     assert view["mandates"][0]["assets"] == [
         {"symbol": "ETH", "perPayment": "0.02", "total": "0.1", "usedTotal": "0.02"}]
     assert [p["intentId"] for p in view["pending"]] == ["int_wait"]
-    assert view["pending"][0]["approvalPage"] == "http://localhost:8080/w/wsp_1/approvals/int_wait"
-    assert [r["intentId"] for r in view["recent"]] == ["int_mandate", "int_done"]
-    assert all("approvalPage" not in r for r in view["recent"])
+    # os's own approval page (by approval id), not one built from the intent id.
+    assert view["pending"][0]["approvalPage"] == "http://localhost:8080/w/wsp_1/approvals/apr_wait"
+    assert [r["intentId"] for r in view["recent"]] == ["int_foreign", "int_mandate", "int_done"]
+    assert all(not r.get("approvalPage") for r in view["recent"])
 
 
 AMBIENT = "os_agent_token_of_the_LAUNCH_profile"
@@ -292,3 +297,34 @@ def test_pairing_link_on_another_site_is_refused(fake_pairing, monkeypatch):
 
     assert started["status"] == "error"
     assert router.pair_poll() == {"status": "none"}
+
+
+INTENT = "int_01m7jjrhz50kr07c4esz3ede7n"
+
+
+def test_payment_card_reads_the_payment_from_os_by_id(monkeypatch, fake_os):
+    router = _router()
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{TOKEN}\n"))
+    cli.cmd_connect("http://localhost:8080", token_stdin=True)
+    asked = []
+
+    async def fake_calls(os_target, requested, **_):
+        asked.append(requested)
+        return [{"intentId": INTENT, "status": "pending_approval", "authorizedBy": "person",
+                 "amount": "0.01", "asset": "ETH", "to": "0xabc",
+                 "approvalUrl": "http://localhost:8080/w/wsp_1/approvals/apr_1"}]
+
+    monkeypatch.setattr(router.client, "call_tools_async", fake_calls)
+
+    card = asyncio.run(router.intent(INTENT))
+
+    assert asked == [[("get_intent", {"intentId": INTENT})]]
+    assert card["amount"] == "0.01" and card["final"] is False
+    assert card["approvalPage"] == "http://localhost:8080/w/wsp_1/approvals/apr_1"
+    assert TOKEN not in repr(card)
+
+
+def test_payment_card_refuses_an_id_that_is_not_a_payment():
+    router = _router()
+
+    assert asyncio.run(router.intent("../overview")) == {"error": "not a payment id"}

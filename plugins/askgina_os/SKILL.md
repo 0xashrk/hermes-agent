@@ -33,10 +33,13 @@ that was already open does not see tools added after it started.
    contract) and a short `memo` saying why. Never round, guess or change the recipient, amount,
    asset or chain. If the user named a contact rather than an address, ask for the address.
 3. **Read `authorizedBy` in the answer.**
-   - `"person"`: nothing is sent yet. Give the user the `approvalUrl` and say: open it in your
-     browser, check the address bar shows the os confirmation host, read the payment there (it is
-     built from the signer's own records, not from this chat) and approve it with your passkey
-     before `expiresAt`.
+   - `"person"`: nothing is sent yet. Your reply must show the approval link in full: the bare
+     `approvalUrl`, exactly as given, on its own line (never hidden behind link text), and say: open it, check the
+     address bar shows the os host, read the payment there (it is built from the signer's own
+     records, not from this chat) and approve it with your passkey before `expiresAt`. In the Hermes
+     desktop app, also put `::askgina-payment{intent="<intentId>"}` alone on its own line: it renders
+     a live card of this payment with a Review & approve button. Do not use that line on any other
+     surface (messaging apps, the terminal), where it shows as plain text.
    - `"mandate"`: it was signed with no person asked, under the named `mandateId`. Say so.
 4. **Follow it to a result.** Call `mcp__askgina_os__get_intent` with the `intentId` and
    `waitSeconds` (up to 50), repeating until the status is final: `confirmed`, `reverted`, `stuck`,

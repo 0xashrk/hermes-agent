@@ -184,9 +184,13 @@ def call_tools(os_target: OsTarget, calls: list[tuple[str, dict]], *, timeout: f
     return asyncio.run(call_tools_async(os_target, calls, timeout=timeout))
 
 
-def approval_page(base_url: str, workspace_id: str, intent_id: str) -> str:
-    """The control plane's page for one pending request; it links on to the signer's own page."""
-    return f"{base_url}/w/{workspace_id}/approvals/{intent_id}"
+def os_page(base_url: str, url: object) -> Optional[str]:
+    """``url`` when it is a page of the configured os (an ``approvalUrl`` os returned), else None:
+    Hermes only ever opens os's own pages for a person to approve on."""
+    if not isinstance(url, str) or not url.startswith(f"{base_url}/w/"):
+        return None
+    parts = urlsplit(url)
+    return url if not parts.query and not parts.fragment and "\\" not in url else None
 
 
 # --- pairing: connect with no token to copy -----------------------------------------------------

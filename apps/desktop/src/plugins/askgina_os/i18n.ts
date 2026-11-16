@@ -24,6 +24,11 @@ type WalletMessages = {
   pendingTip: string
   pendingPill: (count: number) => string
   reviewApprove: string
+  cardWaiting: string
+  cardConfirmed: string
+  cardLoading: string
+  cardUnavailable: (reason: string) => string
+  cardViewTransaction: string
   noMemo: string
   memo: (memo: string) => string
   payment: string
@@ -85,6 +90,11 @@ const en: WalletMessages = {
   pendingTip: 'Payments waiting for your passkey approval',
   pendingPill: count => `${count} waiting for approval`,
   reviewApprove: 'Review & approve',
+  cardWaiting: 'Waiting for your passkey',
+  cardConfirmed: 'Confirmed',
+  cardLoading: 'Loading payment…',
+  cardUnavailable: reason => `Couldn't load this payment: ${reason}`,
+  cardViewTransaction: 'View transaction',
   noMemo: 'No memo',
   memo: memo => `“${memo}”`,
   payment: 'Payment',

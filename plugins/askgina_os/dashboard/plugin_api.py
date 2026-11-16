@@ -13,6 +13,7 @@ saves it like ``hermes askgina-os connect``. The poll secret and the token stay 
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 import threading
 from decimal import Decimal
@@ -101,11 +102,8 @@ def summarize(me: dict, balances: dict, intents: dict, base_url: str) -> dict:
 
     pending, recent = [], []
     for intent in intents.get("intents") or []:
-        row = {key: intent.get(key) for key in (
-            "intentId", "status", "title", "amount", "asset", "to", "memo", "createdAt",
-            "authorizedBy", "explorerUrl", "failureCode")}
-        if intent.get("status") in WAITING and intent.get("authorizedBy") == "person" and workspace_id:
-            row["approvalPage"] = client.approval_page(base_url, workspace_id, intent["intentId"])
+        row = intent_row(intent, base_url)
+        if intent.get("status") in WAITING and row.get("approvalPage"):
             pending.append(row)
         else:
             recent.append(row)
@@ -122,6 +120,43 @@ def summarize(me: dict, balances: dict, intents: dict, base_url: str) -> dict:
         "pending": pending,
         "recent": recent[:10],
     }
+
+
+FINAL = {"confirmed", "reverted", "rejected", "expired", "cancelled", "denied", "failed", "voided"}
+INTENT_ID = re.compile(r"^int_[0-9a-z]{26}$")
+
+
+def intent_row(intent: dict, base_url: str) -> dict:
+    """One os intent as the Wallet panel and the chat card show it. The approval page is os's own
+    ``approvalUrl``, accepted only when it is a page of the configured os."""
+    row = {key: intent.get(key) for key in (
+        "intentId", "status", "title", "amount", "asset", "to", "memo", "chainId", "createdAt",
+        "authorizedBy", "explorerUrl", "failureCode")}
+    row["final"] = intent.get("status") in FINAL
+    if intent.get("status") in WAITING and intent.get("authorizedBy") == "person":
+        row["approvalPage"] = client.os_page(base_url, intent.get("approvalUrl"))
+    return row
+
+
+@router.get("/intent/{intent_id}")
+async def intent(intent_id: str) -> dict:
+    """One payment for the chat card, read from os by its id: amount, recipient and status come
+    from os, never from what the model wrote."""
+    from agent.secret_scope import UnscopedSecretError
+
+    if not INTENT_ID.match(intent_id):
+        return {"error": "not a payment id"}
+    try:
+        os_target = client.target()
+    except UnscopedSecretError as exc:
+        return {"error": str(exc)}
+    if os_target is None:
+        return {"error": "askgina/os is not connected"}
+    try:
+        (found,) = await client.call_tools_async(os_target, [("get_intent", {"intentId": intent_id})])
+    except client.OsError as exc:
+        return {"error": str(exc)}
+    return intent_row(found or {}, os_target.base_url)
 
 
 @router.get("/overview")
