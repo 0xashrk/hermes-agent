@@ -19,7 +19,9 @@ signer's own confirmation page, or a mandate a person approved in advance. Never
 private key, seed phrase or passkey.
 
 The tools come from the `askgina_os` MCP server. Hermes exposes them as
-`mcp__askgina_os__<tool>`. If they are missing, tell the user to run `hermes askgina-os connect`.
+`mcp__askgina_os__<tool>`. If they are missing, tell the user to open **Wallet** in Hermes and
+press **Connect wallet** (or run `hermes askgina-os connect`), then start a new session: a session
+that was already open does not see tools added after it started.
 
 ## Flow
 
