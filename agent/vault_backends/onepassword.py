@@ -26,6 +26,8 @@ from agent.vault_store import VaultItemMeta, normalize_origin
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = 30.0
+# Stands in for a session token when the desktop app's CLI integration holds the session itself.
+_APP_SESSION = "app-integration"
 
 
 class OnePasswordLoginBackend(LoginBackend):
@@ -63,7 +65,7 @@ class OnePasswordLoginBackend(LoginBackend):
             env["OP_ACCOUNT"] = account
         if self._service_token:
             env["OP_SERVICE_ACCOUNT_TOKEN"] = self._service_token
-        elif session_token:
+        elif session_token and session_token != _APP_SESSION:
             # op signin --raw prints the bare token; the env var name carries the account shorthand,
             # which op also accepts as plain OP_SESSION for the default account.
             env[f"OP_SESSION_{account}" if account else "OP_SESSION"] = session_token
@@ -80,6 +82,14 @@ class OnePasswordLoginBackend(LoginBackend):
             cmd += ["--account", account]
         proc = run_with_stdin_secret(cmd, env=self._env(None), secret=master_password, timeout=_TIMEOUT, label="op")
         token = (proc.stdout or "").strip()
+        if proc.returncode == 0 and not token:
+            # The 1Password desktop app's CLI integration signs in through the app (Touch ID) and
+            # keeps the session there, so `--raw` prints nothing. Trust it only once `op whoami`
+            # confirms a signed-in account; later `op` calls reach the same app session.
+            check = run_cli([str(self._op()), "whoami"], env=self._env(None), timeout=_TIMEOUT, label="op",
+                            timeout_message="op timed out", stdin=subprocess.DEVNULL)
+            if check.returncode == 0:
+                token = _APP_SESSION
         if proc.returncode != 0 or not token:
             raise RuntimeError(f"1Password unlock failed: {_scrub(proc.stderr or '')[:200] or 'no session token'}")
         if not _unlock.store_session_token(self.name, token, generation):

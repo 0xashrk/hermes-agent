@@ -289,3 +289,58 @@ def test_onepassword_service_account_refusals_name_the_real_cause(fake_op_servic
     assert all(json.loads(a)[:2] != ["item", "get"] for a in log.read_text(encoding="utf-8-sig").splitlines())
     with pytest.raises(RuntimeError, match="DecodeSACredentials"):
         new_backend().resolve_password("op:item-c")
+
+
+# The 1Password desktop app's CLI integration: `op signin --raw` signs in through the app and prints
+# nothing; the app holds the session, so later calls work with no OP_SESSION in the environment.
+_FAKE_OP_APP = r'''#!/usr/bin/env python3
+import json, os, sys
+argv = sys.argv[1:]
+signed_in = os.path.exists(os.path.join(os.path.dirname(__file__), "app-signed-in"))
+if any(k.startswith("OP_SESSION") for k in os.environ):
+    sys.stderr.write("unexpected OP_SESSION\n"); sys.exit(3)
+if argv[:1] == ["signin"]:
+    sys.exit(0)
+if not signed_in:
+    sys.stderr.write("account is not signed in\n"); sys.exit(1)
+if argv[:1] == ["whoami"]:
+    print("URL: https://example.1password.com"); sys.exit(0)
+if argv[:2] == ["item", "list"]:
+    print(json.dumps([{"id": "i1", "title": "Example", "urls": [{"href": "https://example.com"}],
+                       "additional_information": "jane@example.com", "vault": {"id": "v1"}}])); sys.exit(0)
+sys.exit(2)
+'''
+
+
+@pytest.fixture
+def fake_op_app(tmp_path, monkeypatch):
+    exe = tmp_path / "op"
+    exe.write_text(_FAKE_OP_APP, encoding="utf-8")
+    exe.chmod(exe.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / ".hermes"))
+    monkeypatch.delenv("OP_SERVICE_ACCOUNT_TOKEN", raising=False)
+    unlock_mod.lock()
+    yield exe
+    unlock_mod.lock()
+
+
+def test_onepassword_app_integration_unlocks_without_a_session_token(fake_op_app):
+    from agent.vault_backends.onepassword import OnePasswordLoginBackend
+
+    (fake_op_app.parent / "app-signed-in").touch()
+    backend = OnePasswordLoginBackend({"enabled": True, "binary_path": str(fake_op_app)})
+
+    backend.unlock("ignored by the app")
+
+    assert backend.is_unlocked()
+    assert [item.label for item in backend.list_items()] == ["Example"]
+
+
+def test_onepassword_signin_with_no_token_and_no_app_session_still_fails(fake_op_app):
+    from agent.vault_backends.onepassword import OnePasswordLoginBackend
+
+    backend = OnePasswordLoginBackend({"enabled": True, "binary_path": str(fake_op_app)})
+
+    with pytest.raises(RuntimeError, match="1Password unlock failed"):
+        backend.unlock("whatever")
+    assert not backend.is_unlocked()
