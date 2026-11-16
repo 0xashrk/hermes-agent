@@ -26,6 +26,8 @@ export interface WalletLimit {
 
 export interface WalletInfo {
   walletId: string
+  /** os's page for this wallet, where a person sets or changes its limits with a passkey. */
+  walletPage: null | string
   address: string
   label: null | string
   isDefault: boolean

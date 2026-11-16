@@ -156,6 +156,7 @@ def test_wallet_summary_formats_amounts_and_links_only_pending_person_approvals(
     assert view["wallets"][0]["limits"] == [
         {"chainId": "eip155:31337", "symbol": "ETH", "perPayment": "0.01", "perDay": "0.05"}]
     assert view["wallets"][0]["recipients"] == "2 allowed address(es)"
+    assert view["wallets"][0]["walletPage"] == "http://localhost:8080/w/wsp_1/wallets/wal_1"
     assert view["mandates"][0]["assets"] == [
         {"symbol": "ETH", "perPayment": "0.02", "total": "0.1", "usedTotal": "0.02"}]
     assert [p["intentId"] for p in view["pending"]] == ["int_wait"]

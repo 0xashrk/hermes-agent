@@ -265,3 +265,8 @@ def poll_pairing(pairing: Pairing, *, timeout: float = 10) -> str:
         return "connected"
     # `claimed`: the token went to an earlier poll whose answer never arrived; start again.
     return state if state in ("pending", "denied") else "expired"
+
+
+def wallet_page(base_url: str, workspace_id: str, wallet_id: str) -> str:
+    """The control plane's page for one wallet: its limits, set or changed with a passkey."""
+    return f"{base_url}/w/{workspace_id}/wallets/{wallet_id}"

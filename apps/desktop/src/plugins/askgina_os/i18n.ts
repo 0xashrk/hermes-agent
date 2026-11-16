@@ -34,6 +34,8 @@ type WalletMessages = {
   copyAddress: string
   balance: (chainId: string) => string
   noPolicy: string
+  setLimits: string
+  changeLimits: string
   limit: (symbol: string) => string
   limitValue: (perPayment: string, perDay: string) => string
   recipients: string
@@ -92,7 +94,9 @@ const en: WalletMessages = {
   address: 'Address',
   copyAddress: 'Copy address',
   balance: chainId => `Balance (${chainId})`,
-  noPolicy: 'No limits set yet: this wallet signs nothing until you set and approve them on askgina/os.',
+  noPolicy: "No limits yet: this wallet can't pay until you set them.",
+  setLimits: 'Set limits',
+  changeLimits: 'Change limits',
   limit: symbol => `Limit (${symbol})`,
   limitValue: (perPayment, perDay) => `${perPayment} per payment · ${perDay} per day`,
   recipients: 'Recipients',

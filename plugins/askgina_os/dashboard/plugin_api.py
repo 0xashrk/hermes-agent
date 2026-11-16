@@ -63,6 +63,7 @@ def summarize(me: dict, balances: dict, intents: dict, base_url: str) -> dict:
             return known.get("symbol") or asset, int(known.get("decimals") or 18)
         return ("native" if asset == "native" else asset), 18
 
+    workspace_id = me.get("workspaceId")
     wallets = []
     for wallet in me.get("wallets") or []:
         policy = wallet.get("policy") or {}
@@ -78,6 +79,9 @@ def summarize(me: dict, balances: dict, intents: dict, base_url: str) -> dict:
             "label": wallet.get("label"), "isDefault": bool(wallet.get("isDefault")),
             "hasPolicy": bool(policy), "approvalsNeeded": policy.get("approvalsNeeded"),
             "limits": limits,
+            # os's page for this wallet, where a person sets or changes its limits with a passkey.
+            "walletPage": client.wallet_page(base_url, workspace_id, wallet["walletId"])
+            if workspace_id and wallet.get("walletId") else None,
             "recipients": "any address" if recipients.get("mode") == "any"
             else f"{len(recipients.get('addresses') or [])} allowed address(es)" if recipients else None,
         })
@@ -95,7 +99,6 @@ def summarize(me: dict, balances: dict, intents: dict, base_url: str) -> dict:
                          "recipients": mandate.get("recipients") or [], "usesLeft": mandate.get("usesLeft"),
                          "notAfter": mandate.get("notAfter"), "assets": assets})
 
-    workspace_id = me.get("workspaceId")
     pending, recent = [], []
     for intent in intents.get("intents") or []:
         row = {key: intent.get(key) for key in (

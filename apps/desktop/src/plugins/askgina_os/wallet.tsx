@@ -161,6 +161,17 @@ function Wallet({ wallet, balances }: { wallet: WalletInfo; balances: WalletOver
         </Row>
       ))}
       {!wallet.hasPolicy && <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">{w.noPolicy}</p>}
+      {wallet.walletPage && (
+        <Button
+          className="mt-3"
+          onClick={() => openInBrowser(wallet.walletPage!)}
+          size="sm"
+          variant={wallet.hasPolicy ? 'secondary' : 'default'}
+        >
+          <Codicon name="link-external" size="0.8rem" />
+          {wallet.hasPolicy ? w.changeLimits : w.setLimits}
+        </Button>
+      )}
       {wallet.limits.map(limit => (
         <Row key={`${limit.chainId}:${limit.symbol}`} label={w.limit(limit.symbol)}>
           {w.limitValue(limit.perPayment, limit.perDay)}
