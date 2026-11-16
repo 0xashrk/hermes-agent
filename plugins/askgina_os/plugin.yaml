@@ -1,0 +1,9 @@
+name: askgina_os
+version: 0.1.0
+description: "Pay through askgina/os: a self-hosted signer that holds the wallet keys. Hermes proposes payments over MCP; a person approves each one with a passkey on the signer's own page, or a mandate they granted covers it. Hermes never holds a key."
+author: Ash (0xashrk)
+kind: standalone
+platforms:
+  - linux
+  - macos
+  - windows
